@@ -1,0 +1,17 @@
+# Compiler files
+cache/
+out/
+abigenBindings/
+
+# Ignores development broadcast logs
+broadcast/
+
+# Docs
+docs/
+
+# Dotenv file
+.env
+
+# Test coverage
+coverage/
+lcov.info
