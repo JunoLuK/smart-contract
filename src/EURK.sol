@@ -39,6 +39,28 @@ contract EURK is Initializable, ERC20Upgradeable, EIP712Upgradeable, AccessContr
     event MetaTransferCalled(string metadata);
 
     /*
+     emitted when a V2 authorization (random nonce) is consumed by metaTransferV2
+    */
+    event AuthorizationUsed(address indexed authorizer, bytes32 indexed nonce);
+
+    /*
+     emitted when a V2 authorization is cancelled before being used
+    */
+    event AuthorizationCanceled(address indexed authorizer, bytes32 indexed nonce);
+
+    /*
+     EIP-712 typehash for the V2 transfer authorization (random bytes32 nonce, no ordering)
+    */
+    bytes32 public constant META_TRANSFER_V2_TYPEHASH =
+        keccak256("MetaTransfer(address owner,address recipient,uint256 amount,bytes32 nonce,uint256 deadline)");
+
+    /*
+     EIP-712 typehash for gasless cancellation of a V2 authorization
+    */
+    bytes32 public constant CANCEL_AUTHORIZATION_TYPEHASH =
+        keccak256("CancelAuthorization(address authorizer,bytes32 nonce)");
+
+    /*
      checks msg.sender has minter role
     */
     modifier onlyMinters() {
@@ -271,5 +293,113 @@ contract EURK is Initializable, ERC20Upgradeable, EIP712Upgradeable, AccessContr
         CountersUpgradeable.Counter storage nonce = _nonces[addr];
         current = nonce.current();
         nonce.increment();
+    }
+
+    // ─── Meta Transfer V2 (ERC-3009 style: random nonce + cancellation) ───────────
+    // V2 removes the sequential-nonce ordering constraint. Each authorization uses a
+    // client-generated random bytes32 nonce and is single-use. Signers can cancel an
+    // outstanding authorization before its deadline, either directly or gaslessly.
+    //
+    // NOTE: This mapping is appended after all pre-existing storage to keep the UUPS
+    // storage layout backwards compatible across the upgrade.
+
+    /*
+     tracks whether a (authorizer, nonce) pair has already been used or cancelled.
+     true => the authorization can no longer be redeemed
+    */
+    mapping(address => mapping(bytes32 => bool)) private _authorizationStates;
+
+    /*
+    returns whether a V2 authorization nonce has been used or cancelled for an authorizer
+    */
+    function authorizationState(address authorizer, bytes32 nonce) external view returns (bool) {
+        return _authorizationStates[authorizer][nonce];
+    }
+
+    /*
+    metaTransferV2 moves tokens using an ERC-3009 style authorization.
+
+    The signed nonce is a client-generated random bytes32 value, so authorizations
+    can be redeemed in any order and gaps are allowed. Replay protection is enforced
+    by marking the (sender, nonce) pair as used. Restricted to TRANSFERRERS.
+    */
+    function metaTransferV2(
+        bytes calldata signature,
+        address sender,
+        address recipient,
+        uint256 amount,
+        bytes32 nonce,
+        uint256 deadline,
+        string calldata metadata
+    ) public onlyTransferrers nonZeroAmount(amount) nonZeroAccount(sender) nonZeroAccount(recipient) returns (bool) {
+        if (msg.sender != sender) {
+            require(block.timestamp < deadline, "Signature expired");
+            require(!_authorizationStates[sender][nonce], "authorization used or canceled");
+
+            _verifyV2Authorization(signature, sender, recipient, amount, nonce, deadline);
+
+            // Effects before interactions: mark consumed to guarantee single use.
+            _authorizationStates[sender][nonce] = true;
+            emit AuthorizationUsed(sender, nonce);
+        }
+
+        super._transfer(sender, recipient, amount);
+
+        emit MetaTransferCalled(metadata);
+
+        return true;
+    }
+
+    /*
+    verifies a V2 transfer authorization signature was produced by `sender`
+    */
+    function _verifyV2Authorization(
+        bytes calldata signature,
+        address sender,
+        address recipient,
+        uint256 amount,
+        bytes32 nonce,
+        uint256 deadline
+    ) internal view {
+        bytes32 digest = _hashTypedDataV4(
+            keccak256(abi.encode(META_TRANSFER_V2_TYPEHASH, sender, recipient, amount, nonce, deadline))
+        );
+
+        address signer = ECDSAUpgradeable.recover(digest, signature);
+        require(signer != address(0), "ECSDA: invalid signature");
+        require(signer == sender, "Permit: invalid signature");
+    }
+
+    /*
+    Direct cancellation. The signer sends the transaction themselves to invalidate an
+    outstanding V2 authorization identified by nonce before it can be redeemed.
+    */
+    function cancelAuthorization(bytes32 nonce) external {
+        require(!_authorizationStates[msg.sender][nonce], "authorization used or canceled");
+
+        _authorizationStates[msg.sender][nonce] = true;
+        emit AuthorizationCanceled(msg.sender, nonce);
+    }
+
+    /*
+    Gasless cancellation (ERC-3009 cancelAuthorization). A TRANSFERRER submits a
+    cancellation signed off-chain by the authorizer, so the authorizer needs no gas.
+    */
+    function cancelAuthorization(address authorizer, bytes32 nonce, bytes calldata signature)
+        external
+        onlyTransferrers
+        nonZeroAccount(authorizer)
+    {
+        require(!_authorizationStates[authorizer][nonce], "authorization used or canceled");
+
+        bytes32 digest =
+            _hashTypedDataV4(keccak256(abi.encode(CANCEL_AUTHORIZATION_TYPEHASH, authorizer, nonce)));
+
+        address signer = ECDSAUpgradeable.recover(digest, signature);
+        require(signer != address(0), "ECSDA: invalid signature");
+        require(signer == authorizer, "Permit: invalid signature");
+
+        _authorizationStates[authorizer][nonce] = true;
+        emit AuthorizationCanceled(authorizer, nonce);
     }
 }

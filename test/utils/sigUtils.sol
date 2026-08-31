@@ -61,6 +61,36 @@ contract SigUtils is Test {
         return structHash;
     }
 
+    // ─── V2 helpers (random bytes32 nonce + cancellation) ─────────────────────────
+
+    function generateV2TypedDataHash(
+        address owner,
+        address recipient,
+        uint256 amount,
+        bytes32 nonce,
+        uint256 deadline
+    ) public view returns (bytes32) {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                keccak256("MetaTransfer(address owner,address recipient,uint256 amount,bytes32 nonce,uint256 deadline)"),
+                owner,
+                recipient,
+                amount,
+                nonce,
+                deadline
+            )
+        );
+
+        return ECDSAUpgradeable.toTypedDataHash(_domainSeparator(), structHash);
+    }
+
+    function generateCancelTypedDataHash(address authorizer, bytes32 nonce) public view returns (bytes32) {
+        bytes32 structHash =
+            keccak256(abi.encode(keccak256("CancelAuthorization(address authorizer,bytes32 nonce)"), authorizer, nonce));
+
+        return ECDSAUpgradeable.toTypedDataHash(_domainSeparator(), structHash);
+    }
+
     function sign(uint256 ownerPrivateKey, bytes32 digest) public pure returns (bytes memory) {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerPrivateKey, digest);
 
