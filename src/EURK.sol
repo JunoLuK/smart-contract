@@ -168,11 +168,12 @@ contract EURK is Initializable, ERC20Upgradeable, EIP712Upgradeable, AccessContr
      * May emit a {RoleGranted} event.
      */
     function _grantRole(bytes32 role, address account) internal virtual override {
-        super._grantRole(role, account);
-
-        if (role == DEFAULT_ADMIN_ROLE) {
+        // Only adjust the admin count when the account's DEFAULT_ADMIN_ROLE status actually changes.
+        if (role == DEFAULT_ADMIN_ROLE && !hasRole(DEFAULT_ADMIN_ROLE, account)) {
             _adminCount.increment();
         }
+
+        super._grantRole(role, account);
     }
 
     /**
@@ -184,7 +185,8 @@ contract EURK is Initializable, ERC20Upgradeable, EIP712Upgradeable, AccessContr
      * May emit a {RoleRevoked} event.
      */
     function _revokeRole(bytes32 role, address account) internal virtual override {
-        if (role == DEFAULT_ADMIN_ROLE) {
+        // Only adjust the admin count when the account's DEFAULT_ADMIN_ROLE status actually changes.
+        if (role == DEFAULT_ADMIN_ROLE && hasRole(DEFAULT_ADMIN_ROLE, account)) {
             _adminCount.decrement();
 
             require(_adminCount.current() > 0, "contract cannot be left without an admin");

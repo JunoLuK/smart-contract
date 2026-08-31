@@ -114,6 +114,50 @@ contract AKDDRolesTest is AKDDBaseSetup {
         contractInstance.revokeRole(role, newAdmin);
         assertFalse(contractInstance.hasRole(role, newAdmin));
     }
+
+    // ─── Admin count cannot diverge from real admin set ──────────────────────────
+
+    // Granting admin to an account that is already admin must not inflate the count.
+    function testGrantAdminToExistingAdminDoesNotInflateCount() public {
+        bytes32 role = contractInstance.DEFAULT_ADMIN_ROLE();
+        address newAdmin = users[2];
+
+        // Two real admins: admin + newAdmin.
+        vm.prank(admin);
+        contractInstance.grantRole(role, newAdmin);
+
+        // Redundant grants to an existing admin (would previously bump the count each time).
+        vm.startPrank(admin);
+        contractInstance.grantRole(role, newAdmin);
+        contractInstance.grantRole(role, admin);
+        vm.stopPrank();
+
+        // Count must still equal 2, so exactly two revocations are allowed and the last is blocked.
+        vm.prank(admin);
+        contractInstance.revokeRole(role, newAdmin);
+        assertFalse(contractInstance.hasRole(role, newAdmin));
+
+        vm.expectRevert("contract cannot be left without an admin");
+        vm.prank(admin);
+        contractInstance.revokeRole(role, admin);
+    }
+
+    // Revoking admin from a non-admin must not decrement the count.
+    function testRevokeAdminFromNonAdminDoesNotDeflateCount() public {
+        bytes32 role = contractInstance.DEFAULT_ADMIN_ROLE();
+        address notAdmin = users[3];
+
+        // No-op revoke against an account that never had the role.
+        vm.prank(admin);
+        contractInstance.revokeRole(role, notAdmin);
+
+        // The sole real admin must still be protected from removal.
+        vm.expectRevert("contract cannot be left without an admin");
+        vm.prank(admin);
+        contractInstance.revokeRole(role, admin);
+
+        assertTrue(contractInstance.hasRole(role, admin));
+    }
 }
 
 contract AKDDMintTest is AKDDBaseSetup {
