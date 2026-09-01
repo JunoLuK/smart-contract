@@ -64,7 +64,7 @@ contract SigUtils is Test {
     // ─── V2 helpers (random bytes32 nonce + cancellation) ─────────────────────────
 
     function generateV2TypedDataHash(
-        address owner,
+        address sender,
         address recipient,
         uint256 amount,
         bytes32 nonce,
@@ -72,8 +72,8 @@ contract SigUtils is Test {
     ) public view returns (bytes32) {
         bytes32 structHash = keccak256(
             abi.encode(
-                keccak256("MetaTransfer(address owner,address recipient,uint256 amount,bytes32 nonce,uint256 deadline)"),
-                owner,
+                keccak256("MetaTransfer(address sender,address recipient,uint256 amount,bytes32 nonce,uint256 deadline)"),
+                sender,
                 recipient,
                 amount,
                 nonce,

@@ -52,7 +52,7 @@ contract EURK is Initializable, ERC20Upgradeable, EIP712Upgradeable, AccessContr
      EIP-712 typehash for the V2 transfer authorization (random bytes32 nonce, no ordering)
     */
     bytes32 public constant META_TRANSFER_V2_TYPEHASH =
-        keccak256("MetaTransfer(address owner,address recipient,uint256 amount,bytes32 nonce,uint256 deadline)");
+        keccak256("MetaTransfer(address sender,address recipient,uint256 amount,bytes32 nonce,uint256 deadline)");
 
     /*
      EIP-712 typehash for gasless cancellation of a V2 authorization
